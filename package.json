@@ -1,0 +1,23 @@
+{
+  "name": "file-server",
+  "version": "0.0.1",
+  "description": "Simple http file server that supports files and directories",
+  "main": "index.js",
+  "scripts": {
+    "test": "node ./tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MauriceButler/file-server.git"
+  },
+  "keywords": [],
+  "author": "Maurice Butler <maurice.butler@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/MauriceButler/file-server/issues"
+  },
+  "homepage": "https://github.com/MauriceButler/file-server",
+  "dependencies": {
+    "lru-cache": "^2.5.0"
+  }
+}
