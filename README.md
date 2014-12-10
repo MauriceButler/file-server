@@ -2,6 +2,65 @@
 
 Simple http file server that supports files and directories
 
-# Status
 
-Work in progress...
+## Example
+
+    var FileServer = require('file-server'),
+        fileServer = new FileServer(function(error, request, response){
+            response.statusCode = error.code || 500;
+            response.end(error);
+        }),
+        serveRobots = fileServer.serveFile('./robots.txt', 'text/plain');
+
+    require('http').createServer(serveRobots(request, response)).listen(8080);
+
+
+### new FileServer(errorCallback, [cacheSize])
+
+The FileServer constructor takes 2 arguments `errorCallback` and an optional `cacheSize` (bytes).
+
+The callback gets 3 arguments `(error, request, response)`
+
+`cacheSize` will defaults to 1024 * 1000
+
+If the error argument was the result of a missing file the error will have a `code` of 404. Other codes may be added in the future.
+
+    var FileServer = require('file-server'),
+        fileServer = new FileServer(function(error, request, response){
+            response.statusCode = error.code || 500;
+            response.end(error);
+        });
+
+
+### fileServer.serveFile(fileName, mimeType, [maxAge])
+
+The `serveFile` method takes 3 arguments `fileName`, `mimeType` and an optional `maxAge`.
+
+`fileName` is the name of the file to serve.
+
+`mimeType` is a string, defining which mime type should be used.
+
+`maxAge` will defaults to 0 (rely on ETags)
+
+This will return a function that takes a `request` and a `response` and will stream the file to the response, or in the case of an error, call the error callback passed in at construction.
+
+    serveRobots = fileServer.serveFile('./robots.txt', 'text/plain');
+    serveRobots(request, response);
+
+### fileServer.serveDirectory(rootDirectory, mimeTypes, [maxAge])
+
+The `serveDirectory` method takes 3 arguments `rootDirectory`, `mimeTypes` and an optional `maxAge`.
+
+`rootDirectory` is the base directory to serve files from. If a file above this directory is asked for the request will error with a 404.
+
+`mimeTypes` is an object keyed by extension, defining which mime type should be used for the extension. If a file is asked for with an extension that is not defined the request will error with a 404.
+
+`maxAge` will defaults to 0 (rely on ETags)
+
+This will return a function that takes a `request`, `response` and a `filename` and will stream the file to the response, or in the case of an error, call the error callback passed in at construction.
+
+    serveImagesDirectory = fileServer.serveDirectory('./images', {
+        '.gif': 'image/gif',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg'
+    }),
