@@ -118,7 +118,7 @@ FileServer.prototype.serveDirectory = function(rootDirectory, mimeTypes, maxAge)
             return fileServer._errorCallback(request, response, {code: 404, message: '404: Not Found ' + fileName});
         }
 
-        fileServer.serveFile(fileName, mimeTypes[extention], maxAge)(request, response);
+        fileServer.serveFile(filePath, mimeTypes[extention], maxAge)(request, response);
     };
 };
 

@@ -514,7 +514,7 @@ test('serveDirectory calls serveFile', function (t) {
         );
 
     fileServer.serveFile = function(fileName, mimeType, maxAge){
-        t.equal(fileName, testFile, 'fileName is correct');
+        t.equal(fileName, path.join(testRootDirectory, testFile), 'fileName is correct');
         t.equal(mimeType, 'text/majigger', 'mimeType is correct');
         t.equal(maxAge, testMaxAge, 'maxAge is correct');
 

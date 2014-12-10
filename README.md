@@ -47,6 +47,7 @@ This will return a function that takes a `request` and a `response` and will str
     serveRobots = fileServer.serveFile('./robots.txt', 'text/plain');
     serveRobots(request, response);
 
+
 ### fileServer.serveDirectory(rootDirectory, mimeTypes, [maxAge])
 
 The `serveDirectory` method takes 3 arguments `rootDirectory`, `mimeTypes` and an optional `maxAge`.
@@ -63,4 +64,6 @@ This will return a function that takes a `request`, `response` and a `filename` 
         '.gif': 'image/gif',
         '.png': 'image/png',
         '.jpg': 'image/jpeg'
-    }),
+    });
+
+    serveImagesDirectory(request, response, '/kittens.jpg');
