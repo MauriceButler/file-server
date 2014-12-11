@@ -1,6 +1,7 @@
 var test = require('tape'),
     Fraudster = require('fraudster'),
     path = require('path'),
+    kgo = require('kgo'),
     fraudster = new Fraudster(),
     pathToObjectUnderTest ='../',
     testDate = new Date();
@@ -8,9 +9,10 @@ var test = require('tape'),
 fraudster.registerAllowables([pathToObjectUnderTest, 'path']);
 
 function resetMocks(){
+    fraudster.registerMock('kgo', kgo);
     fraudster.registerMock('graceful-fs', {
         stat: function(fileName, callback){
-            callback(null, {
+            callback(~fileName.indexOf('.gz'), {
                 isFile: function(){return true;},
                 mtime: testDate
             });
@@ -199,7 +201,9 @@ test('serveFile 404s on not isFile', function (t) {
 
     var testFileName = './foo.txt',
         testRequest = {},
-        testResponse = {},
+        testResponse = {
+            setHeader: function(){}
+        },
         expectedError = {
             code: 404,
             message: '404: Not Found ' + testFileName
@@ -207,7 +211,7 @@ test('serveFile 404s on not isFile', function (t) {
 
     fraudster.registerMock('graceful-fs', {
         stat: function(fileName, callback){
-            callback(null, {
+            callback(~fileName.indexOf('.gz'), {
                 isFile: function(){return false;}
             });
         }
@@ -343,7 +347,7 @@ test('serveFile passes create stream into cache', function (t) {
 
     fraudster.registerMock('graceful-fs', {
         stat: function(fileName, callback){
-            callback(null, {
+            callback(~fileName.indexOf('.gz'), {
                 isFile: function(){return true;},
                 mtime: testDate
             });
@@ -375,6 +379,86 @@ test('serveFile passes create stream into cache', function (t) {
             t.equal(request, testRequest, 'request is correct');
             t.equal(response, testResponse, 'response is correct');
         }),
+        serveFile = fileServer.serveFile(testFileName);
+
+    serveFile(testRequest, testResponse);
+});
+
+test('serveFile checks for .gz file if gzip supported but uses original if not available', function (t) {
+    t.plan(3);
+
+    var testFileName = './foo.txt',
+        testRequest = {
+            headers: {
+                'accept-encoding': 'foo gzip bar'
+            }
+        },
+        testResponse = {
+            setHeader: function(){},
+            removeHeader: function(){},
+            on: function(){}
+        };
+
+    fraudster.registerMock('graceful-fs', {
+        stat: function(fileName, callback){
+            callback(~fileName.indexOf('.gz'), {
+                isFile: function(){return true;},
+                mtime: testDate
+            });
+        },
+        createReadStream: function(){}
+    });
+
+    fraudster.registerMock('stream-catcher', function(){
+        this.write = function(fileName, response, createReadStream){
+            t.equal(fileName, testFileName, 'fileName is correct');
+            t.equal(response, testResponse, 'response is correct');
+            t.equal(typeof createReadStream, 'function', 'createReadStream is a function');
+        };
+    });
+
+    var FileServer = getCleanTestObject(),
+        fileServer = new FileServer(function(){}),
+        serveFile = fileServer.serveFile(testFileName);
+
+    serveFile(testRequest, testResponse);
+});
+
+test('serveFile uses .gz file if gzip supported and exists', function (t) {
+    t.plan(3);
+
+    var testFileName = './foo.txt',
+        testRequest = {
+            headers: {
+                'accept-encoding': 'foo gzip bar'
+            }
+        },
+        testResponse = {
+            setHeader: function(){},
+            removeHeader: function(){},
+            on: function(){}
+        };
+
+    fraudster.registerMock('graceful-fs', {
+        stat: function(fileName, callback){
+            callback(!~fileName.indexOf('.gz'), {
+                isFile: function(){return true;},
+                mtime: testDate
+            });
+        },
+        createReadStream: function(){}
+    });
+
+    fraudster.registerMock('stream-catcher', function(){
+        this.write = function(fileName, response, createReadStream){
+            t.equal(fileName, testFileName + '.gz', 'fileName is correct');
+            t.equal(response, testResponse, 'response is correct');
+            t.equal(typeof createReadStream, 'function', 'createReadStream is a function');
+        };
+    });
+
+    var FileServer = getCleanTestObject(),
+        fileServer = new FileServer(function(){}),
         serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
