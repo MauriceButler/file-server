@@ -1,6 +1,7 @@
 var fs = require('graceful-fs'),
     path = require('path'),
     hashr = require('hashr'),
+    kgo = require('kgo'),
     StreamCatcher = require('stream-catcher'),
     cacheMaxSize = 1024 * 1000;
 
@@ -33,6 +34,33 @@ function FileServer(errorCallback, cacheSize){
     };
 }
 
+FileServer.prototype._getFile = function(stats, fileName, mimeType, maxAge, request, response){
+    var fileServer = this;
+
+    if(!stats.isFile()){
+        return fileServer._errorCallback(request, response, {code: 404, message: '404: Not Found ' + fileName});
+    }
+
+    var eTag = hashr.hash(fileName + stats.mtime.getTime());
+
+    response.setHeader('ETag', eTag);
+    response.setHeader('Cache-Control', 'private, max-age=' + maxAge);
+
+    response.removeHeader('Set-Cookie');
+
+    if(request.headers && request.headers['if-none-match'] === eTag) {
+        response.writeHead(304);
+        return response.end();
+    }
+
+    response.setHeader('Content-Type', mimeType);
+
+    response.on('error', fileServer._errorCallback.bind(null, request, response));
+
+    fileServer._cache.write(fileName, response, createReadStream(fileServer, request, response));
+
+};
+
 FileServer.prototype.serveFile = function(fileName, mimeType, maxAge){
     var fileServer = this;
 
@@ -49,36 +77,43 @@ FileServer.prototype.serveFile = function(fileName, mimeType, maxAge){
     }
 
     return function(request, response){
-        fs.stat(fileName, function(error, stats){
-            if(error){
-                if(error.message && ~error.message.indexOf('ENOENT')){
-                    return fileServer._errorCallback(request, response, {code: 404, message: '404: Not Found ' + fileName});
-                }
+        kgo
+        ({
+            acceptsGzip: request.headers && request.headers['accept-encoding'] && ~request.headers['accept-encoding'].indexOf('gzip'),
+            fileName: fileName,
+            mimeType: mimeType,
+            maxAge: maxAge,
+            request: request,
+            response: response
+        })
+        ('stats', 'finalFilename', ['acceptsGzip', 'fileName', 'response'], function(acceptsGzip, fileName, response, done){
+            var gzipFileName = fileName + '.gz';
 
-                return fileServer._errorCallback(request, response, error);
+            if(acceptsGzip){
+                fs.stat(gzipFileName, function(error, stats){
+                    if(error){
+                        return fs.stat(fileName, function(error, stats){
+                            done.call(null, error, stats, fileName);
+                        });
+                    }
+
+                    response.setHeader('Content-Encoding', 'gzip');
+                    done(null, stats, gzipFileName);
+                });
+                return;
             }
 
-            if(!stats.isFile()){
+            fs.stat(fileName, function(error, stats){
+                done.call(null, error, stats, fileName);
+            });
+        })
+        (['stats', 'finalFilename', 'mimeType', 'maxAge', 'request', 'response'], fileServer._getFile.bind(fileServer))
+        .on('error', function(error){
+            if(error.message && ~error.message.indexOf('ENOENT')){
                 return fileServer._errorCallback(request, response, {code: 404, message: '404: Not Found ' + fileName});
             }
 
-            var eTag = hashr.hash(fileName + stats.mtime.getTime());
-
-            response.setHeader('ETag', eTag);
-            response.setHeader('Cache-Control', 'private, max-age=' + maxAge);
-
-            response.removeHeader('Set-Cookie');
-
-            if(request.headers && request.headers['if-none-match'] === eTag) {
-                response.writeHead(304);
-                return response.end();
-            }
-
-            response.setHeader('Content-Type', mimeType);
-
-            response.on('error', fileServer._errorCallback.bind(null, request, response));
-
-            fileServer._cache.write(fileName, response, createReadStream(fileServer, request, response));
+            return fileServer._errorCallback(request, response, error);
         });
     };
 };
