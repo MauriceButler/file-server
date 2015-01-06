@@ -1,6 +1,6 @@
 {
   "name": "file-server",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Simple http file server that supports files and directories",
   "main": "index.js",
   "scripts": {
