@@ -3,6 +3,8 @@ var fs = require('graceful-fs'),
     hashr = require('hashr'),
     kgo = require('kgo'),
     StreamCatcher = require('stream-catcher'),
+    chokidar = require('chokidar'),
+    watchers = {},
     cacheMaxSize = 1024 * 1000;
 
 function cacheLengthFunction(n) {
@@ -63,6 +65,14 @@ FileServer.prototype._getFile = function(stats, fileName, mimeType, maxAge, requ
 
 FileServer.prototype.serveFile = function(fileName, mimeType, maxAge){
     var fileServer = this;
+
+    if(!watchers[fileName]) {
+        var watcher = chokidar.watch(fileName, {persistent: true, ignoreInitial: true});
+        watcher.on('change', function() {
+            fileServer._cache.del(fileName);
+        });
+        watchers[fileName]  = watcher;
+    }
 
     if(!fileName || typeof fileName !== 'string'){
         throw 'Must provide a fileName to serveFile';
@@ -156,5 +166,11 @@ FileServer.prototype.serveDirectory = function(rootDirectory, mimeTypes, maxAge)
         fileServer.serveFile(filePath, mimeTypes[extention], maxAge)(request, response);
     };
 };
+
+process.on('exit', function() {
+    for(var key in watchers) {
+        watchers[key].close();
+    }
+});
 
 module.exports = FileServer;
