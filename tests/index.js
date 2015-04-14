@@ -27,6 +27,14 @@ function resetMocks(){
         this.read = function(){};
         this.write = function(){};
     });
+
+    fraudster.registerMock('chokidar', {
+        watch: function(){
+            return {
+                on: function(){}
+            };
+        }
+    });
 }
 
 function getCleanTestObject(){
@@ -231,7 +239,7 @@ test('serveFile 404s on not isFile', function (t) {
 });
 
 test('serveFile sets headers and asks for file', function (t) {
-    t.plan(11);
+    t.plan(10);
 
     var testFileName = './foo.txt',
         testMimeType = 'bar',
@@ -256,9 +264,6 @@ test('serveFile sets headers and asks for file', function (t) {
                 }
 
                 t.fail('Set unexpected header key: ' + key + ' value: ' + value);
-            },
-            removeHeader: function(key){
-                t.equal(key, 'Set-Cookie', 'removed Set-Cookie header');
             },
             on: function(eventName, callback){
                 t.equal(eventName, 'error', 'set error handeler');
@@ -382,6 +387,80 @@ test('serveFile passes create stream into cache', function (t) {
         serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
+});
+
+test('serveFile watches files only once with chokidar', function (t) {
+    t.plan(4);
+
+    var testFileName = './foo.txt',
+        expectedOptions = {persistent: true, ignoreInitial: true};
+
+    fraudster.registerMock('chokidar', {
+        watch: function(fileName, options){
+            t.equal(fileName, testFileName, 'got correct fileName');
+            t.deepEqual(options, expectedOptions, 'got correct options');
+
+            return {
+                on: function(event, callback){
+                    t.equal(event, 'change', 'got correct event');
+                    callback();
+                }
+            };
+        }
+    });
+
+    fraudster.registerMock('stream-catcher', function(){
+        this.del = function(fileName){
+            t.equal(fileName, testFileName, 'deleted correct fileName');
+        };
+    });
+
+    var FileServer = getCleanTestObject(),
+        fileServer = new FileServer(function(){});
+
+    fileServer.serveFile(testFileName);
+    fileServer.serveFile(testFileName);
+});
+
+test('process on exit cleans up watches', function (t) {
+    t.plan(1);
+
+    var testFileName = './foo.txt',
+        oldProcessOn = process.on,
+        FileServer;
+
+    process.on = function(event, callback){
+        setTimeout(function(){
+            var fileServer = new FileServer(function(){});
+
+            fileServer.serveFile(testFileName);
+
+            callback();
+
+            oldProcessOn.call(process, event, callback);
+        }, 0);
+
+        process.on = oldProcessOn;
+    };
+
+    fraudster.registerMock('chokidar', {
+        watch: function(){
+            return {
+                on: function(event, callback){
+                    callback();
+                },
+                close: function(){
+                    t.pass('closed watcher');
+                }
+            };
+        }
+    });
+
+    fraudster.registerMock('stream-catcher', function(){
+        this.del = function(){};
+    });
+
+    FileServer = getCleanTestObject();
 });
 
 test('serveFile checks for .gz file if gzip supported but uses original if not available', function (t) {

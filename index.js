@@ -48,9 +48,8 @@ FileServer.prototype._getFile = function(stats, fileName, mimeType, maxAge, requ
     response.setHeader('ETag', eTag);
     response.setHeader('Cache-Control', 'private, max-age=' + maxAge);
 
-    response.removeHeader('Set-Cookie');
-
     if(request.headers && request.headers['if-none-match'] === eTag) {
+        response.removeHeader('Set-Cookie');
         response.writeHead(304);
         return response.end();
     }
