@@ -291,7 +291,7 @@ test('serveFile sets headers and asks for file', function (t) {
 });
 
 test('serveFile returns 304 if etag matches', function (t) {
-    t.plan(5);
+    t.plan(4);
 
     var testFileName = './foo.txt',
         testRequest = {
@@ -312,9 +312,6 @@ test('serveFile returns 304 if etag matches', function (t) {
                 }
 
                 t.fail('Set unexpected header key: ' + key + ' value: ' + value);
-            },
-            removeHeader: function(key){
-                t.equal(key, 'Set-Cookie', 'removed Set-Cookie header');
             },
             writeHead: function(code){
                 t.equal(code, 304, 'set 304 code correctly');
