@@ -57,6 +57,10 @@ FileServer.prototype._getFile = function(stats, fileName, mimeType, maxAge, requ
 
     response.on('error', fileServer._errorCallback.bind(null, request, response));
 
+    if(stats.size === 0){
+        return response.end();
+    }
+
     fileServer._cache.write(fileName, response, createReadStream(fileServer, request, response));
 
 };
