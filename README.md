@@ -12,7 +12,7 @@ Simple http file server that supports files and directories
         }),
         serveRobots = fileServer.serveFile('./robots.txt', 'text/plain');
 
-    require('http').createServer(serveRobots(request, response)).listen(8080);
+    require('http').createServer(serveRobots).listen(8080);
 
 
 ### new FileServer(errorCallback, [cacheSize])
@@ -45,6 +45,7 @@ The `serveFile` method takes 3 arguments `fileName`, `mimeType` and an optional 
 This will return a function that takes a `request` and a `response` and will stream the file to the response, or in the case of an error, call the error callback passed in at construction.
 
     serveRobots = fileServer.serveFile('./robots.txt', 'text/plain');
+    
     serveRobots(request, response);
 
 
@@ -66,4 +67,4 @@ This will return a function that takes a `request`, `response` and a `filename` 
         '.jpg': 'image/jpeg'
     });
 
-    serveImagesDirectory(request, response, '/kittens.jpg');
+    serveImagesDirectory(request, response, request.url);
