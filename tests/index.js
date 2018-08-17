@@ -1,367 +1,335 @@
-var test = require('tape'),
-    Fraudster = require('fraudster'),
-    path = require('path'),
-    kgo = require('kgo'),
-    fraudster = new Fraudster(),
-    pathToObjectUnderTest ='../',
-    testDate = new Date();
+const test = require('tape');
+const proxyquire = require('proxyquire');
+const path = require('path');
 
-fraudster.registerAllowables([pathToObjectUnderTest, 'path']);
+const pathToObjectUnderTest = '../';
+const FileServer = require(pathToObjectUnderTest);
+const testDate = new Date();
+const testFileName = './foo.txt';
+const testMimeType = 'bar';
+const testMaxAge = 123;
+const testKey = 'bar';
+const testRootDirectory = './files';
+const testRequest = {
+    headers: {
+        'accept-encoding': 'foo gzip bar',
+    },
+};
+const testResponse = {
+    setHeader: () => {},
+    removeHeader: () => {},
+    on: () => {},
+};
+const testError = {
+    code: 404,
+    message: `404: Not Found ${testFileName}`,
+};
 
-function resetMocks(){
-    fraudster.registerMock('kgo', kgo);
-    fraudster.registerMock('graceful-fs', {
-        stat: function(fileName, callback){
-            callback(~fileName.indexOf('.gz'), {
-                isFile: function(){return true;},
-                mtime: testDate
-            });
-        }
-    });
-    fraudster.registerMock('hashr', {
-        hash: function(value){
-            return value;
-        }
-    });
-    fraudster.registerMock('stream-catcher', function(){
-        this.read = function(){};
-        this.write = function(){};
-    });
-
-    fraudster.registerMock('chokidar', {
-        watch: function(){
-            return {
-                on: function(){}
-            };
-        }
-    });
+function createErrorCallback(t, expectedError = testError, expectedResponse = testResponse) {
+    return function errorCallback(error, request, response) {
+        t.deepEqual(error, expectedError, 'got correct error');
+        t.equal(request, testRequest, 'got correct request');
+        t.equal(response, expectedResponse, 'got correct response');
+    };
 }
 
-function getCleanTestObject(){
-    delete require.cache[require.resolve(pathToObjectUnderTest)];
-    fraudster.enable();
-    var objectUnderTest = require(pathToObjectUnderTest);
-    fraudster.disable();
-    resetMocks();
-    return objectUnderTest;
+function getBaseMocks() {
+    return {
+        'graceful-fs': {
+            stat: (fileName, callback) => {
+                callback(~fileName.indexOf('.gz'), {
+                    isFile: function() {
+                        return true;
+                    },
+                    mtime: testDate,
+                });
+            },
+        },
+        hashr: { hash: value => value },
+        'stream-catcher': function() {
+            this.read = () => {};
+            this.write = () => {};
+        },
+        chokidar: {
+            watch: function() {
+                return {
+                    on: () => {},
+                };
+            },
+        },
+    };
 }
 
-resetMocks();
-
-test('FileServer is a function', function (t) {
+test('FileServer is a function', t => {
     t.plan(1);
-
-    var FileServer = getCleanTestObject();
 
     t.equal(typeof FileServer, 'function', 'FileServer is a function');
 });
 
-test('FileServer requires a callback', function (t) {
+test('FileServer requires a callback', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject();
-
-    t.throws(function(){
+    t.throws(() => {
         new FileServer();
     }, 'FileServer throws if no callback');
 });
 
-test('FileServer constructs a cache', function (t) {
+test('FileServer constructs a cache', t => {
     t.plan(4);
 
-    var expectedMax = 1024 * 1000,
-        lengthTest = {
-            length: 'foo'
-        },
-        testCache = {};
+    const expectedMax = 1024 * 1000;
 
-    fraudster.registerMock('stream-catcher', function(options){
+    const lengthTest = {
+        length: 'foo',
+    };
+
+    const testCache = {};
+
+    const mocks = getBaseMocks();
+
+    mocks['stream-catcher'] = function(options) {
         t.equal(options.max, expectedMax, 'cache max set correctly');
         t.equal(typeof options.length, 'function', 'length is a function');
         t.equal(options.length(lengthTest), 'foo', 'length function gets length property');
         return testCache;
-    });
+    };
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    t.equal(fileServer._cache, testCache, 'cache was set');
+    const fileServer = new MockFileServer(() => {});
+
+    t.equal(fileServer.cache, testCache, 'cache was set');
 });
 
-test('FileServer constructs a cache with custom size', function (t) {
+test('FileServer constructs a cache with custom size', t => {
     t.plan(1);
 
-    var expectedMax = 123;
+    const expectedMax = 123;
+    const mocks = getBaseMocks();
 
-    fraudster.registerMock('stream-catcher', function(options){
+    mocks['stream-catcher'] = function(options) {
         t.equal(options.max, expectedMax, 'cache max set correctly');
-    });
+    };
 
-    var FileServer = getCleanTestObject();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    new FileServer(function(){}, expectedMax);
+    new MockFileServer(() => {}, expectedMax);
 });
 
-test('FileServer sets and flips the error callback', function (t) {
+test('FileServer sets and flips the error callback', t => {
     t.plan(3);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(error, request, response){
-            t.equal(error, 3, 'error is correct');
-            t.equal(request, 1, 'request is correct');
-            t.equal(response, 2, 'response is correct');
-        });
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    fileServer._errorCallback(1,2,3);
+    const fileServer = new MockFileServer((error, request, response) => {
+        t.equal(error, 3, 'error is correct');
+        t.equal(request, 1, 'request is correct');
+        t.equal(response, 2, 'response is correct');
+    });
+
+    fileServer.errorCallback(1, 2, 3);
 });
 
-test('serveFile is a function', function (t) {
+test('serveFile is a function', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
 
     t.equal(typeof fileServer.serveFile, 'function', 'serveFile is a function');
 });
 
-test('serveFile requires a fileName', function (t) {
+test('serveFile requires a fileName', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    t.throws(
-        function(){
-            fileServer.serveFile();
-        },
-        'serveFile throws if no fileName'
-    );
+    const fileServer = new MockFileServer(() => {});
+
+    t.throws(() => {
+        fileServer.serveFile();
+    }, 'serveFile throws if no fileName');
 });
 
-test('serveFile returns a function', function (t) {
+test('serveFile returns a function', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
 
     t.equal(typeof fileServer.serveFile('./foo'), 'function', 'serveFile returns a function');
 });
 
-test('serveFile returns full error on generic stats error', function (t) {
+test('serveFile returns full error on generic stats error', t => {
     t.plan(3);
 
-    var testFileName = './foo.txt',
-        testRequest = {},
-        testResponse = {},
-        expectedError = 'BANG';
+    const mocks = getBaseMocks();
 
-    fraudster.registerMock('graceful-fs', {
-        stat: function(fileName, callback){
-            callback(expectedError);
-        }
-    });
+    mocks['graceful-fs'].stat = (fileName, callback) => callback(testError);
 
-    function errorCallback(error, request, response){
-        t.deepEqual(error, expectedError, 'got correct error');
-        t.equal(request, testRequest, 'got request');
-        t.equal(response, testResponse, 'got response');
-    }
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(errorCallback),
-        serveFile = fileServer.serveFile(testFileName);
+    const fileServer = new MockFileServer(createErrorCallback(t));
+
+    const serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
 });
 
-test('serveFile 404s on file stat ENOENT error', function (t) {
+test('serveFile 404s on file stat ENOENT error', t => {
     t.plan(3);
 
-    var testFileName = './foo.txt',
-        testRequest = {},
-        testResponse = {},
-        expectedError = {
-            code: 404,
-            message: '404: Not Found ' + testFileName
-        };
+    const mocks = getBaseMocks();
 
-    fraudster.registerMock('graceful-fs', {
-        stat: function(fileName, callback){
-            callback({message: 'ENOENT'});
-        }
-    });
+    mocks['graceful-fs'].stat = (fileName, callback) => callback({ message: 'ENOENT' });
 
-    function errorCallback(error, request, response){
-        t.deepEqual(error, expectedError, 'got correct error');
-        t.equal(request, testRequest, 'got request');
-        t.equal(response, testResponse, 'got response');
-    }
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(errorCallback),
-        serveFile = fileServer.serveFile(testFileName);
+    const fileServer = new MockFileServer(createErrorCallback(t));
+
+    const serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
 });
 
-test('serveFile 404s on not isFile', function (t) {
+test('serveFile 404s on not isFile', t => {
     t.plan(3);
 
-    var testFileName = './foo.txt',
-        testRequest = {},
-        testResponse = {
-            setHeader: function(){}
-        },
-        expectedError = {
-            code: 404,
-            message: '404: Not Found ' + testFileName
-        };
+    const mocks = getBaseMocks();
 
-    fraudster.registerMock('graceful-fs', {
-        stat: function(fileName, callback){
-            callback(~fileName.indexOf('.gz'), {
-                isFile: function(){return false;}
-            });
-        }
-    });
+    mocks['graceful-fs'].stat = (fileName, callback) => {
+        callback(~fileName.indexOf('.gz'), {
+            isFile: function() {
+                return false;
+            },
+        });
+    };
 
-    function errorCallback(error, request, response){
-        t.deepEqual(error, expectedError, 'got correct error');
-        t.equal(request, testRequest, 'got request');
-        t.equal(response, testResponse, 'got response');
-    }
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(errorCallback),
-        serveFile = fileServer.serveFile(testFileName);
+    const fileServer = new MockFileServer(createErrorCallback(t));
+
+    const serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
 });
 
-test('serveFile sets headers and asks for file', function (t) {
+test('serveFile sets headers and asks for file', t => {
     t.plan(10);
 
-    var testFileName = './foo.txt',
-        testMimeType = 'bar',
-        testMaxAge = 123,
-        testError = 'BOOM!',
-        testRequest = {},
-        testResponse = {
-            setHeader: function(key, value){
-                if(key === 'ETag'){
-                    t.equal(value, testFileName + testDate.getTime(), 'got correct header value for ' + key);
-                    return;
-                }
-
-                if(key === 'Cache-Control'){
-                    t.equal(value, 'private, max-age=' + testMaxAge, 'got correct header value for ' + key);
-                    return;
-                }
-
-                if(key === 'Content-Type'){
-                    t.equal(value, testMimeType, 'got correct header value for ' + key);
-                    return;
-                }
-
-                t.fail('Set unexpected header key: ' + key + ' value: ' + value);
-            },
-            on: function(eventName, callback){
-                t.equal(eventName, 'error', 'set error handeler');
-                callback(testError);
+    const mocks = getBaseMocks();
+    const testResponse = {
+        setHeader: (key, value) => {
+            if (key === 'ETag') {
+                t.equal(value, testFileName + testDate.getTime(), `got correct header value for ${key}`);
+                return;
             }
-        };
 
-    fraudster.registerMock('stream-catcher', function(){
-        this.write = function(fileName, response, createReadStream){
+            if (key === 'Cache-Control') {
+                t.equal(value, `private, max-age=${testMaxAge}`, `got correct header value for ${key}`);
+                return;
+            }
+
+            if (key === 'Content-Type') {
+                t.equal(value, testMimeType, `got correct header value for ${key}`);
+                return;
+            }
+
+            t.fail(`Set unexpected header key: ${key} value: ${value}`);
+        },
+        on: (eventName, callback) => {
+            t.equal(eventName, 'error', 'set error handeler');
+            callback(testError);
+        },
+    };
+
+    mocks['stream-catcher'] = function() {
+        this.write = function(fileName, response, createReadStream) {
             t.equal(fileName, testFileName, 'fileName is correct');
             t.equal(response, testResponse, 'response is correct');
             t.equal(typeof createReadStream, 'function', 'createReadStream is a function');
         };
-    });
+    };
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(error, request, response){
-            t.equal(error, testError, 'error is correct');
-            t.equal(request, testRequest, 'request is correct');
-            t.equal(response, testResponse, 'response is correct');
-        }),
-        serveFile = fileServer.serveFile(testFileName, testMimeType, testMaxAge);
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(createErrorCallback(t, undefined, testResponse));
+
+    const serveFile = fileServer.serveFile(testFileName, testMimeType, testMaxAge);
 
     serveFile(testRequest, testResponse);
 });
 
-test('serveFile returns 304 if etag matches', function (t) {
+test('serveFile returns 304 if etag matches', t => {
     t.plan(4);
 
-    var testFileName = './foo.txt',
-        testRequest = {
-            headers: {
-                'if-none-match': testFileName + testDate.getTime()
-            }
+    const mocks = getBaseMocks();
+    const testRequest = {
+        headers: {
+            'if-none-match': testFileName + testDate.getTime(),
         },
-        testResponse = {
-            setHeader: function(key, value){
-                if(key === 'ETag'){
-                    t.equal(value, testFileName + testDate.getTime(), 'got correct header value for ' + key);
-                    return;
-                }
-
-                if(key === 'Cache-Control'){
-                    t.equal(value, 'private, max-age=0', 'got correct header value for ' + key);
-                    return;
-                }
-
-                t.fail('Set unexpected header key: ' + key + ' value: ' + value);
-            },
-            writeHead: function(code){
-                t.equal(code, 304, 'set 304 code correctly');
-            },
-            end: function(){
-                t.pass('end was called');
+    };
+    const testResponse = {
+        setHeader: (key, value) => {
+            if (key === 'ETag') {
+                t.equal(value, testFileName + testDate.getTime(), `got correct header value for ${key}`);
+                return;
             }
-        };
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){}),
-        serveFile = fileServer.serveFile(testFileName);
+            if (key === 'Cache-Control') {
+                t.equal(value, 'private, max-age=0', `got correct header value for ${key}`);
+                return;
+            }
+
+            t.fail(`Set unexpected header key: ${key} value: ${value}`);
+        },
+        writeHead: code => t.equal(code, 304, 'set 304 code correctly'),
+        end: () => t.pass('end was called'),
+    };
+
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
+
+    const serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
 });
 
-test('serveFile passes create stream into cache', function (t) {
+test('serveFile passes create stream into cache', t => {
     t.plan(10);
 
-    var testFileName = './foo.txt',
-        testKey = 'bar',
-        testError = 'BANG!!!!',
-        testReadStream = {
-            on: function(eventName, callback){
-                t.equal(eventName, 'error', 'set error handeler');
-                callback(testError);
-            }
+    const mocks = getBaseMocks();
+    const testReadStream = {
+        on: function(eventName, callback) {
+            t.equal(eventName, 'error', 'set error handeler');
+            callback(testError);
         },
-        testRequest = {},
-        testResponse = {
-            setHeader: function(){},
-            removeHeader: function(){},
-            on: function(){}
-        };
+    };
 
-    fraudster.registerMock('graceful-fs', {
-        stat: function(fileName, callback){
+    mocks['graceful-fs'] = {
+        stat: function(fileName, callback) {
             callback(~fileName.indexOf('.gz'), {
-                isFile: function(){return true;},
-                mtime: testDate
+                isFile: function() {
+                    return true;
+                },
+                mtime: testDate,
             });
         },
-        createReadStream: function(key){
+        createReadStream: function(key) {
             t.equal(key, testKey, 'key is correct');
             return testReadStream;
-        }
-    });
+        },
+    };
 
-    fraudster.registerMock('stream-catcher', function(){
-        this.write = function(fileName, response, createReadStream){
+    mocks['stream-catcher'] = function() {
+        this.write = function(fileName, response, createReadStream) {
             t.equal(fileName, testFileName, 'fileName is correct');
             t.equal(response, testResponse, 'response is correct');
             t.equal(typeof createReadStream, 'function', 'createReadStream is a function');
@@ -369,66 +337,71 @@ test('serveFile passes create stream into cache', function (t) {
             createReadStream(testKey);
         };
 
-        this.read = function(key, readStream){
+        this.read = function(key, readStream) {
             t.equal(key, testKey, 'key is correct');
             t.equal(readStream, testReadStream, 'readStream is correct');
         };
-    });
+    };
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(error, request, response){
-            t.equal(error, testError, 'error is correct');
-            t.equal(request, testRequest, 'request is correct');
-            t.equal(response, testResponse, 'response is correct');
-        }),
-        serveFile = fileServer.serveFile(testFileName);
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(createErrorCallback(t));
+
+    const serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
 });
 
-test('serveFile watches files only once with chokidar', function (t) {
+test('serveFile watches files only once with chokidar', t => {
     t.plan(4);
 
-    var testFileName = './foo.txt',
-        expectedOptions = {persistent: true, ignoreInitial: true};
+    const mocks = getBaseMocks();
+    const expectedOptions = { persistent: true, ignoreInitial: true };
 
-    fraudster.registerMock('chokidar', {
-        watch: function(fileName, options){
-            t.equal(fileName, testFileName, 'got correct fileName');
-            t.deepEqual(options, expectedOptions, 'got correct options');
+    mocks.chokidar.watch = (fileName, options) => {
+        t.equal(fileName, testFileName, 'got correct fileName');
+        t.deepEqual(options, expectedOptions, 'got correct options');
 
-            return {
-                on: function(event, callback){
-                    t.equal(event, 'change', 'got correct event');
-                    callback();
-                }
-            };
-        }
-    });
-
-    fraudster.registerMock('stream-catcher', function(){
-        this.del = function(fileName){
-            t.equal(fileName, testFileName, 'deleted correct fileName');
+        return {
+            on: function(event, callback) {
+                t.equal(event, 'change', 'got correct event');
+                callback();
+            },
         };
-    });
+    };
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    mocks['stream-catcher'] = function() {
+        this.del = fileName => t.equal(fileName, testFileName, 'deleted correct fileName');
+    };
+
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
 
     fileServer.serveFile(testFileName);
     fileServer.serveFile(testFileName);
 });
 
-test('process on exit cleans up watches', function (t) {
+test('process on exit cleans up watches', t => {
     t.plan(1);
 
-    var testFileName = './foo.txt',
-        oldProcessOn = process.on,
-        FileServer;
+    const mocks = getBaseMocks();
+    const oldProcessOn = process.on;
 
-    process.on = function(event, callback){
-        setTimeout(function(){
-            var fileServer = new FileServer(function(){});
+    let MockFileServer;
+
+    mocks.chokidar.watch = () => ({
+        on: (event, callback) => callback(),
+        close: () => t.pass('closed watcher'),
+    });
+
+    mocks['stream-catcher'] = function() {
+        this.del = () => {};
+    };
+
+    process.on = function(event, callback) {
+        setTimeout(() => {
+            const fileServer = new MockFileServer(() => {});
 
             fileServer.serveFile(testFileName);
 
@@ -440,245 +413,205 @@ test('process on exit cleans up watches', function (t) {
         process.on = oldProcessOn;
     };
 
-    fraudster.registerMock('chokidar', {
-        watch: function(){
-            return {
-                on: function(event, callback){
-                    callback();
-                },
-                close: function(){
-                    t.pass('closed watcher');
-                }
-            };
-        }
-    });
-
-    fraudster.registerMock('stream-catcher', function(){
-        this.del = function(){};
-    });
-
-    FileServer = getCleanTestObject();
+    MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 });
 
-test('serveFile checks for .gz file if gzip supported but uses original if not available', function (t) {
+test('serveFile checks for .gz file if gzip supported but uses original if not available', t => {
     t.plan(3);
 
-    var testFileName = './foo.txt',
-        testRequest = {
-            headers: {
-                'accept-encoding': 'foo gzip bar'
-            }
-        },
-        testResponse = {
-            setHeader: function(){},
-            removeHeader: function(){},
-            on: function(){}
-        };
+    const mocks = getBaseMocks();
 
-    fraudster.registerMock('graceful-fs', {
-        stat: function(fileName, callback){
+    mocks['graceful-fs'] = {
+        stat: (fileName, callback) => {
             callback(~fileName.indexOf('.gz'), {
-                isFile: function(){return true;},
-                mtime: testDate
+                isFile: function() {
+                    return true;
+                },
+                mtime: testDate,
             });
         },
-        createReadStream: function(){}
-    });
+        createReadStream: () => {},
+    };
 
-    fraudster.registerMock('stream-catcher', function(){
-        this.write = function(fileName, response, createReadStream){
+    mocks['stream-catcher'] = function() {
+        this.write = function(fileName, response, createReadStream) {
             t.equal(fileName, testFileName, 'fileName is correct');
             t.equal(response, testResponse, 'response is correct');
             t.equal(typeof createReadStream, 'function', 'createReadStream is a function');
         };
-    });
+    };
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){}),
-        serveFile = fileServer.serveFile(testFileName);
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
+
+    const serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
 });
 
-test('serveFile uses .gz file if gzip supported and exists', function (t) {
+test('serveFile uses .gz file if gzip supported and exists', t => {
     t.plan(3);
 
-    var testFileName = './foo.txt',
-        testRequest = {
-            headers: {
-                'accept-encoding': 'foo gzip bar'
-            }
-        },
-        testResponse = {
-            setHeader: function(){},
-            removeHeader: function(){},
-            on: function(){}
-        };
+    const mocks = getBaseMocks();
 
-    fraudster.registerMock('graceful-fs', {
-        stat: function(fileName, callback){
+    mocks['graceful-fs'] = {
+        stat: function(fileName, callback) {
             callback(!~fileName.indexOf('.gz'), {
-                isFile: function(){return true;},
-                mtime: testDate
+                isFile: function() {
+                    return true;
+                },
+                mtime: testDate,
             });
         },
-        createReadStream: function(){}
-    });
+        createReadStream: () => {},
+    };
 
-    fraudster.registerMock('stream-catcher', function(){
-        this.write = function(fileName, response, createReadStream){
-            t.equal(fileName, testFileName + '.gz', 'fileName is correct');
+    mocks['stream-catcher'] = function() {
+        this.write = function(fileName, response, createReadStream) {
+            t.equal(fileName, `${testFileName}.gz`, 'fileName is correct');
             t.equal(response, testResponse, 'response is correct');
             t.equal(typeof createReadStream, 'function', 'createReadStream is a function');
         };
-    });
+    };
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){}),
-        serveFile = fileServer.serveFile(testFileName);
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
+
+    const serveFile = fileServer.serveFile(testFileName);
 
     serveFile(testRequest, testResponse);
 });
 
-test('serveDirectory is a function', function (t) {
+test('serveDirectory is a function', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
 
     t.equal(typeof fileServer.serveDirectory, 'function', 'serveDirectory is a function');
 });
 
-test('serveDirectory requires a rootDirectory', function (t) {
+test('serveDirectory requires a rootDirectory', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    t.throws(
-        function(){
-            fileServer.serveDirectory();
-        },
-        'serveDirectory throws if no rootDirectory'
-    );
+    const fileServer = new MockFileServer(() => {});
+
+    t.throws(() => {
+        fileServer.serveDirectory();
+    }, 'serveDirectory throws if no rootDirectory');
 });
 
-test('serveDirectory requires a mimeTypes object', function (t) {
+test('serveDirectory requires a mimeTypes object', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    t.throws(
-        function(){
-            fileServer.serveDirectory('./files');
-        },
-        'serveDirectory throws if no mimeTypes'
-    );
+    const fileServer = new MockFileServer(() => {});
+
+    t.throws(() => {
+        fileServer.serveDirectory('./files');
+    }, 'serveDirectory throws if no mimeTypes');
 });
 
-test('serveDirectory mimeTypes must start with a .', function (t) {
+test('serveDirectory mimeTypes must start with a .', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
 
-    t.throws(
-        function(){
-            fileServer.serveDirectory(
-                './files',
-                {
-                    '.foo': 'bar',
-                    'meh': 'stuff'
-                },
-                123
-            );
-        },
-        'serveDirectory throws if no mimeTypes'
-    );
+    const fileServer = new MockFileServer(() => {});
+
+    t.throws(() => {
+        fileServer.serveDirectory(
+            './files',
+            {
+                '.foo': 'bar',
+                meh: 'stuff',
+            },
+            123,
+        );
+    }, 'serveDirectory throws if no mimeTypes');
 });
 
-test('serveDirectory returns a function', function (t) {
+test('serveDirectory returns a function', t => {
     t.plan(1);
 
-    var FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){});
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
 
     t.equal(typeof fileServer.serveDirectory('./files', {}), 'function', 'serveDirectory returns a function');
 });
 
-test('serveDirectory 404s if mimetype mismatch', function (t) {
+test('serveDirectory 404s if mimetype mismatch', t => {
     t.plan(3);
 
-    var testRequest = {},
-        testResponse = {},
-        testRootDirectory = './files',
-        testFile = './foo.bar',
-        expectedError = {code: 404, message: '404: Not Found ' + path.join(testRootDirectory, testFile)},
-        FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(error, request, response){
-            t.deepEqual(error, expectedError, 'error is correct');
-            t.equal(request, testRequest, 'request is correct');
-            t.equal(response, testResponse, 'response is correct');
-        }),
-        serveDirectory = fileServer.serveDirectory(
-            testRootDirectory,
-            {
-                '.txt': 'text/plain'
-            }
-        );
+    const testFile = './foo.bar';
+    const expectedError = { code: 404, message: `404: Not Found ${path.join(testRootDirectory, testFile)}` };
+
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(createErrorCallback(t, expectedError));
+
+    const serveDirectory = fileServer.serveDirectory(testRootDirectory, {
+        '.txt': 'text/plain',
+    });
 
     serveDirectory(testRequest, testResponse, testFile);
 });
 
-test('serveDirectory 404s if try to navigate up a level', function (t) {
+test('serveDirectory 404s if try to navigate up a level', t => {
     t.plan(3);
 
-    var testRequest = {},
-        testResponse = {},
-        testRootDirectory = './files',
-        testFile = '../../foo.txt',
-        expectedError = {code: 404, message: '404: Not Found ' + testFile},
-        FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(error, request, response){
-            t.deepEqual(error, expectedError, 'error is correct');
-            t.equal(request, testRequest, 'request is correct');
-            t.equal(response, testResponse, 'response is correct');
-        }),
-        serveDirectory = fileServer.serveDirectory(
-            testRootDirectory,
-            {
-                '.txt': 'text/plain'
-            }
-        );
+    const testFile = '../../foo.txt';
+    const expectedError = { code: 404, message: `404: Not Found ${testFile}` };
+
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(createErrorCallback(t, expectedError));
+
+    const serveDirectory = fileServer.serveDirectory(testRootDirectory, {
+        '.txt': 'text/plain',
+    });
 
     serveDirectory(testRequest, testResponse, testFile);
 });
 
-test('serveDirectory calls serveFile', function (t) {
+test('serveDirectory calls serveFile', t => {
     t.plan(5);
 
-    var testRequest = {},
-        testResponse = {},
-        testRootDirectory = './files',
-        testFile = './bar/foo.txt',
-        testMaxAge = 123,
-        FileServer = getCleanTestObject(),
-        fileServer = new FileServer(function(){}),
-        serveDirectory = fileServer.serveDirectory(
-            testRootDirectory,
-            {
-                '.txt': 'text/majigger'
-            },
-            testMaxAge
-        );
+    const testFile = './bar/foo.txt';
 
-    fileServer.serveFile = function(fileName, mimeType, maxAge){
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
+
+    const serveDirectory = fileServer.serveDirectory(
+        testRootDirectory,
+        {
+            '.txt': 'text/majigger',
+        },
+        testMaxAge,
+    );
+
+    fileServer.serveFile = function(fileName, mimeType, maxAge) {
         t.equal(fileName, path.join(testRootDirectory, testFile), 'fileName is correct');
         t.equal(mimeType, 'text/majigger', 'mimeType is correct');
         t.equal(maxAge, testMaxAge, 'maxAge is correct');
 
-        return function(request, response){
+        return function(request, response) {
             t.equal(request, testRequest, 'request is correct');
             t.equal(response, testResponse, 'response is correct');
         };
