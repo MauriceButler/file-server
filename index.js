@@ -151,6 +151,10 @@ FileServer.prototype.serveDirectory = function(rootDirectory, mimeTypes, maxAge 
     }
 
     return function(request, response, fileName) {
+        if (arguments.length < 3) {
+            fileName = request.url.slice(1);
+        } 
+
         const filePath = path.join(rootDirectory, fileName);
 
         const extention = path.extname(filePath).toLowerCase();

@@ -11,6 +11,7 @@ const testMaxAge = 123;
 const testKey = 'bar';
 const testRootDirectory = './files';
 const testRequest = {
+    url: "/bar/foo.txt",
     headers: {
         'accept-encoding': 'foo gzip bar',
     },
@@ -618,4 +619,36 @@ test('serveDirectory calls serveFile', t => {
     };
 
     serveDirectory(testRequest, testResponse, testFile);
+});
+
+test('serveDirectory calls serveFile with filename retrieved from url', t => {
+    t.plan(5);
+
+    const testFile = './bar/foo.txt';
+
+    const mocks = getBaseMocks();
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
+
+    const serveDirectory = fileServer.serveDirectory(
+        testRootDirectory,
+        {
+            '.txt': 'text/majigger',
+        },
+        testMaxAge,
+    );
+
+    fileServer.serveFile = function(fileName, mimeType, maxAge) {
+        t.equal(fileName, path.join(testRootDirectory, testFile), 'fileName is correct');
+        t.equal(mimeType, 'text/majigger', 'mimeType is correct');
+        t.equal(maxAge, testMaxAge, 'maxAge is correct');
+
+        return function(request, response) {
+            t.equal(request, testRequest, 'request is correct');
+            t.equal(response, testResponse, 'response is correct');
+        };
+    };
+
+    serveDirectory(testRequest, testResponse);
 });
