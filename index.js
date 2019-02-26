@@ -151,9 +151,8 @@ FileServer.prototype.serveDirectory = function(rootDirectory, mimeTypes, maxAge 
     }
 
     return function(request, response, fileName) {
-
-        if(fileName===undefined){
-            fileName=request.url.slice(1);
+        if (arguments.length < 3) {
+            fileName = request.url.slice(1);
         } 
 
         const filePath = path.join(rootDirectory, fileName);
