@@ -77,3 +77,8 @@ const serveImagesDirectory = fileServer.serveDirectory('./images', {
 
 serveImagesDirectory(request, response, request.url);
 ```
+
+If the `fileName` argument is ommited, the filename will be automatically pulled from `request.url`
+```javascript
+serveImagesDirectory(request, response);
+```
