@@ -55,6 +55,7 @@ function getBaseMocks() {
             watch: function() {
                 return {
                     on: () => {},
+                    close: () => Promise.resolve(),
                 };
             },
         },
@@ -651,4 +652,47 @@ test('serveDirectory calls serveFile with filename retrieved from url', t => {
     };
 
     serveDirectory(testRequest, testResponse);
+});
+
+test('close terminates all file watchers', t => {
+    t.plan(3);
+
+    let closedConnections = 0;
+
+    const mocks = getBaseMocks();
+    mocks.chokidar.watch = () => {
+        return {
+            on: () => {},
+            close: () => {
+                closedConnections++;
+                Promise.resolve();
+            },
+        };
+    };
+    const MockFileServer = proxyquire(pathToObjectUnderTest, mocks);
+
+    const fileServer = new MockFileServer(() => {});
+
+    // Observe 2 files via each method
+    const serveDirectory = fileServer.serveDirectory(
+        testRootDirectory,
+        {
+            '.txt': 'text/majigger',
+        },
+        testMaxAge,
+    );
+
+    const serveFile = fileServer.serveFile(testFileName);
+
+    // Watchers start on first request
+    serveDirectory(testRequest, testResponse);
+    serveFile(testRequest, testResponse);
+
+    t.equal(Object.keys(fileServer.watchers).length, 2);
+
+    fileServer.close(() => {
+        t.equal(closedConnections, 2);
+        t.equal(Object.keys(fileServer.watchers).length, 0);
+    });
+
 });

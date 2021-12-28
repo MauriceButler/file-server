@@ -82,3 +82,31 @@ If the `fileName` argument is ommited, the filename will be automatically pulled
 ```javascript
 serveImagesDirectory(request, response);
 ```
+
+### Closing connections
+
+File server automically closes any watchers on files or directories during process end.  If you have a need for stopping and starting
+tha file server throughout a process (i.e. using jest), you may also programmatically close all open file watchers on the server 'close' event.
+
+```javascript
+
+const fileServer = new FileServer((error, request, response) => {
+    response.statusCode = error.code || 500;
+    response.end(error);
+});
+
+// Your file serving setup
+
+require('http')
+    .createServer(fileServer.serveDirectory('./images', {
+        '.gif': 'image/gif',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+    }))
+    .listen(8080)
+    .on('close', () => {
+        fileServer.close(() => {
+            console.log('We have closed all file server connections');
+        });
+    });
+```

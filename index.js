@@ -35,6 +35,9 @@ function FileServer(errorCallback, cacheSize) {
     this.errorCallback = function(request, response, error) {
         errorCallback(error, request, response);
     };
+
+    // Local watchers for programmatic closing
+    this.watchers = {};
 }
 
 FileServer.prototype.getFile = function(stats, fileName, mimeType, maxAge, request, response) {
@@ -96,6 +99,8 @@ FileServer.prototype.serveFile = function(fileName, mimeType = 'text/plain', max
             fileServer.cache.del(fileName);
         });
         watchers[fileName] = watcher;
+        // Add to local instance for programmtic closing
+        this.watchers[fileName] = watcher;
     }
 
     if (!fileName || typeof fileName !== 'string') {
@@ -170,6 +175,19 @@ FileServer.prototype.serveDirectory = function(rootDirectory, mimeTypes, maxAge 
         fileServer.serveFile(filePath, mimeTypes[extention], maxAge)(request, response);
     };
 };
+
+FileServer.prototype.close = function(onClose) {
+    const closePromises = [];
+    Object.keys(this.watchers).forEach((key) => {
+        const watcher = this.watchers[key];
+        closePromises.push(watcher.close());
+        delete this.watchers[key];
+    });
+    
+    Promise.all(closePromises).then(() => {
+        onClose();
+    });
+}
 
 process.on('exit', () => {
     Object.values(watchers).forEach(watcher => watcher.close());
