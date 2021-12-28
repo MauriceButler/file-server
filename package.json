@@ -3,6 +3,7 @@
   "version": "2.1.0",
   "description": "Simple http file server that supports files and directories",
   "main": "index.js",
+  "types": "index.d.ts",
   "scripts": {
     "test": "node ./tests"
   },
